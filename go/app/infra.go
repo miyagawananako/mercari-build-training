@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	// STEP 5-1: uncomment this line
 	// _ "github.com/mattn/go-sqlite3"
 )
 
 var errImageNotFound = errors.New("image not found")
+var errItemNotFound = errors.New("item not found")
 
 type Item struct {
 	ID       int    `db:"id" json:"-"`
@@ -24,7 +26,8 @@ type Item struct {
 //go:generate go run go.uber.org/mock/mockgen -source=$GOFILE -package=${GOPACKAGE} -destination=./mock_$GOFILE
 type ItemRepository interface {
 	Insert(ctx context.Context, item *Item) error
-	Get(ctx context.Context) (json.RawMessage, error)
+	GetAll(ctx context.Context) (json.RawMessage, error)
+	GetByID(ctx context.Context, id string) (*Item, error)
 }
 
 // itemRepository is an implementation of ItemRepository
@@ -56,7 +59,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 		}
 	}
 
-	wrapper.Items = append(wrapper.Items, Item{Name: item.Name, Category: item.Category})
+	wrapper.Items = append(wrapper.Items, Item{Name: item.Name, Category: item.Category, Image: item.Image})
 
 	output, err := json.Marshal(wrapper)
 	if err != nil {
@@ -71,7 +74,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 	return nil
 }
 
-func (i *itemRepository) Get(ctx context.Context) (json.RawMessage, error) {
+func (i *itemRepository) GetAll(ctx context.Context) (json.RawMessage, error) {
 	type ItemsWrapper struct {
 		Items []Item `json:"items"`
 	}
@@ -94,6 +97,34 @@ func (i *itemRepository) Get(ctx context.Context) (json.RawMessage, error) {
 	}
 
 	return output, nil
+}
+
+func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
+	type ItemsWrapper struct {
+		Items []Item `json:"items"`
+	}
+
+	var wrapper ItemsWrapper
+
+	data, err := os.ReadFile(i.fileName)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if err == nil && len(data) > 0 {
+		if err := json.Unmarshal(data, &wrapper); err != nil {
+			return nil, err
+		}
+	}
+
+	itemID, err := strconv.Atoi(id)
+	if err != nil {
+		return nil, err
+	}
+	if itemID <= 0 || itemID > len(wrapper.Items) {
+		return nil, errItemNotFound
+	}
+	return &wrapper.Items[itemID-1], nil
 }
 
 // StoreImage stores an image and returns an error if any.
