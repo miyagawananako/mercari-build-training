@@ -15,6 +15,7 @@ type Item struct {
 	ID       int    `db:"id" json:"-"`
 	Name     string `db:"name" json:"name"`
 	Category string `db:"category" json:"category"`
+	Image    string `db:"image" json:"image"`
 }
 
 // Please run `go generate ./...` to generate the mock implementation
@@ -98,7 +99,10 @@ func (i *itemRepository) Get(ctx context.Context) (json.RawMessage, error) {
 // StoreImage stores an image and returns an error if any.
 // This package doesn't have a related interface for simplicity.
 func StoreImage(fileName string, image []byte) error {
-	// STEP 4-4: add an implementation to store an image
+	err := os.WriteFile(fileName, image, 0644)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
