@@ -95,27 +95,19 @@ func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
-	var wrapper ItemsWrapper
-
-	data, err := os.ReadFile(i.fileName)
-	if err != nil && !os.IsNotExist(err) {
+	items, err := i.GetAll(ctx)
+	if err != nil {
 		return nil, err
-	}
-
-	if err == nil && len(data) > 0 {
-		if err := json.Unmarshal(data, &wrapper); err != nil {
-			return nil, err
-		}
 	}
 
 	itemID, err := strconv.Atoi(id)
 	if err != nil {
 		return nil, err
 	}
-	if itemID <= 0 || itemID > len(wrapper.Items) {
+	if itemID <= 0 || itemID > len(items) {
 		return nil, errItemNotFound
 	}
-	return &wrapper.Items[itemID-1], nil
+	return items[itemID-1], nil
 }
 
 // StoreImage stores an image and returns an error if any.
