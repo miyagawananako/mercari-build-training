@@ -26,7 +26,7 @@ type Item struct {
 //go:generate go run go.uber.org/mock/mockgen -source=$GOFILE -package=${GOPACKAGE} -destination=./mock_$GOFILE
 type ItemRepository interface {
 	Insert(ctx context.Context, item *Item) error
-	GetAll(ctx context.Context) (json.RawMessage, error)
+	GetAll(ctx context.Context) ([]*Item, error)
 	GetByID(ctx context.Context, id string) (*Item, error)
 }
 
@@ -74,8 +74,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 	return nil
 }
 
-func (i *itemRepository) GetAll(ctx context.Context) (json.RawMessage, error) {
-
+func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
 	var wrapper ItemsWrapper
 	data, err := os.ReadFile(i.fileName)
 	if err != nil && !os.IsNotExist(err) {
@@ -88,12 +87,11 @@ func (i *itemRepository) GetAll(ctx context.Context) (json.RawMessage, error) {
 		}
 	}
 
-	output, err := json.Marshal(wrapper)
-	if err != nil {
-		return nil, err
+	items := make([]*Item, len(wrapper.Items))
+	for i := range wrapper.Items {
+		items[i] = &wrapper.Items[i]
 	}
-
-	return output, nil
+	return items, nil
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
