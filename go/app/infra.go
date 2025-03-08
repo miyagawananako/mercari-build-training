@@ -41,12 +41,12 @@ func NewItemRepository() ItemRepository {
 	return &itemRepository{fileName: "items.json"}
 }
 
+type ItemsWrapper struct {
+	Items []Item `json:"items"`
+}
+
 // Insert inserts an item into the repository.
 func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
-	type ItemsWrapper struct {
-		Items []Item `json:"items"`
-	}
-
 	var wrapper ItemsWrapper
 	data, err := os.ReadFile(i.fileName)
 	if err != nil && !os.IsNotExist(err) {
@@ -75,9 +75,6 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 }
 
 func (i *itemRepository) GetAll(ctx context.Context) (json.RawMessage, error) {
-	type ItemsWrapper struct {
-		Items []Item `json:"items"`
-	}
 
 	var wrapper ItemsWrapper
 	data, err := os.ReadFile(i.fileName)
@@ -100,10 +97,6 @@ func (i *itemRepository) GetAll(ctx context.Context) (json.RawMessage, error) {
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
-	type ItemsWrapper struct {
-		Items []Item `json:"items"`
-	}
-
 	var wrapper ItemsWrapper
 
 	data, err := os.ReadFile(i.fileName)
