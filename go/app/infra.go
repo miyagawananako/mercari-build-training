@@ -71,13 +71,29 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare("INSERT INTO items (name, category, image_name) VALUES (?, ?, ?)")
+	var categoryID int
+	err = tx.QueryRowContext(ctx, "SELECT id FROM categories WHERE name = ?", item.Category).Scan(&categoryID)
+	if err == sql.ErrNoRows {
+		res, err := tx.ExecContext(ctx, "INSERT INTO categories (name) VALUES (?)", item.Category)
+		if err != nil {
+			return err
+		}
+		categoryID64, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		categoryID = int(categoryID64)
+	} else if err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare("INSERT INTO items (name, category_id, image_name) VALUES (?, ?, ?)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(item.Name, item.Category, item.Image)
+	_, err = stmt.Exec(item.Name, categoryID, item.Image)
 	if err != nil {
 		return err
 	}
@@ -92,7 +108,7 @@ func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
 	}
 	defer db.Close()
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name, category, image_name FROM items")
+	rows, err := db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +138,7 @@ func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) 
 	}
 
 	item := &Item{}
-	err = db.QueryRowContext(ctx, "SELECT id, name, category, image_name FROM items WHERE id = ?", itemID).Scan(
+	err = db.QueryRowContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id WHERE items.id = ?", itemID).Scan(
 		&item.ID, &item.Name, &item.Category, &item.Image)
 	if err == sql.ErrNoRows {
 		return nil, errItemNotFound
