@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/mock/gomock"
+	"mime/multipart"
 )
 
 func TestParseAddItemRequest(t *testing.T) {
@@ -19,20 +21,21 @@ func TestParseAddItemRequest(t *testing.T) {
 		err bool
 	}
 
-	// STEP 6-1: define test cases
 	cases := map[string]struct {
 		args map[string]string
 		wants
 	}{
 		"ok: valid request": {
 			args: map[string]string{
-				"name":     "", // fill here
-				"category": "", // fill here
+				"name":     "jacket",
+				"category": "fashion",
+				"image":    "images/default.jpg",
 			},
 			wants: wants{
 				req: &AddItemRequest{
-					Name: "", // fill here
-					// Category: "", // fill here
+					Name:     "jacket",
+					Category: "fashion",
+					Image:    []byte("images/default.jpg"),
 				},
 				err: false,
 			},
@@ -50,18 +53,29 @@ func TestParseAddItemRequest(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			// prepare request body
-			values := url.Values{}
-			for k, v := range tt.args {
-				values.Set(k, v)
-			}
+			var b bytes.Buffer
+			w := multipart.NewWriter(&b)
 
-			// prepare HTTP request
-			req, err := http.NewRequest("POST", "http://localhost:9000/items", strings.NewReader(values.Encode()))
-			if err != nil {
-				t.Fatalf("failed to create request: %v", err)
+			for k, v := range tt.args {
+				if k == "image" {
+					fw, err := w.CreateFormFile("image", v)
+					if err != nil {
+						t.Fatal(err)
+					}
+					fw.Write([]byte(v))
+				} else {
+					if err := w.WriteField(k, v); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w.Close()
+
+			req, err := http.NewRequest("POST", "/items", &b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", w.FormDataContentType())
 
 			// execute test target
 			got, err := parseAddItemRequest(req)
