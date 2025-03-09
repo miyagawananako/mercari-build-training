@@ -3,14 +3,14 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"go.uber.org/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	"mime/multipart"
 )
 
@@ -30,13 +30,13 @@ func TestParseAddItemRequest(t *testing.T) {
 			args: map[string]string{
 				"name":     "jacket",
 				"category": "fashion",
-				"image":    "images/default.jpg",
+				"image":    "jacket.jpg",
 			},
 			wants: wants{
 				req: &AddItemRequest{
 					Name:     "jacket",
 					Category: "fashion",
-					Image:    []byte("images/default.jpg"),
+					Image:    []byte("jacket.jpg"),
 				},
 				err: false,
 			},
@@ -130,6 +130,8 @@ func TestHelloHandler(t *testing.T) {
 func TestAddItem(t *testing.T) {
 	t.Parallel()
 
+	tmpDir := t.TempDir()
+
 	type wants struct {
 		code int
 	}
@@ -142,10 +144,10 @@ func TestAddItem(t *testing.T) {
 			args: map[string]string{
 				"name":     "used iPhone 16e",
 				"category": "phone",
+				"image":    "test.jpg",
 			},
 			injector: func(m *MockItemRepository) {
-				// STEP 6-3: define mock expectation
-				// succeeded to insert
+				m.EXPECT().Insert(gomock.Any(), gomock.Any()).Return(nil)
 			},
 			wants: wants{
 				code: http.StatusOK,
@@ -155,10 +157,10 @@ func TestAddItem(t *testing.T) {
 			args: map[string]string{
 				"name":     "used iPhone 16e",
 				"category": "phone",
+				"image":    "test.jpg",
 			},
 			injector: func(m *MockItemRepository) {
-				// STEP 6-3: define mock expectation
-				// failed to insert
+				m.EXPECT().Insert(gomock.Any(), gomock.Any()).Return(errors.New("failed to insert"))
 			},
 			wants: wants{
 				code: http.StatusInternalServerError,
@@ -174,14 +176,31 @@ func TestAddItem(t *testing.T) {
 
 			mockIR := NewMockItemRepository(ctrl)
 			tt.injector(mockIR)
-			h := &Handlers{itemRepo: mockIR}
-
-			values := url.Values{}
-			for k, v := range tt.args {
-				values.Set(k, v)
+			h := &Handlers{
+				imgDirPath: tmpDir,
+				itemRepo:   mockIR,
 			}
-			req := httptest.NewRequest("POST", "/items", strings.NewReader(values.Encode()))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			var b bytes.Buffer
+			w := multipart.NewWriter(&b)
+
+			for k, v := range tt.args {
+				if k == "image" {
+					fw, err := w.CreateFormFile("image", v)
+					if err != nil {
+						t.Fatal(err)
+					}
+					fw.Write([]byte(v))
+				} else {
+					if err := w.WriteField(k, v); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			w.Close()
+
+			req := httptest.NewRequest("POST", "/items", &b)
+			req.Header.Set("Content-Type", w.FormDataContentType())
 
 			rr := httptest.NewRecorder()
 			h.AddItem(rr, req)
@@ -193,10 +212,14 @@ func TestAddItem(t *testing.T) {
 				return
 			}
 
-			for _, v := range tt.args {
-				if !strings.Contains(rr.Body.String(), v) {
-					t.Errorf("response body does not contain %s, got: %s", v, rr.Body.String())
-				}
+			var resp AddItemResponse
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("failed to decode response body: %v", err)
+			}
+
+			expectedMessage := fmt.Sprintf("item received: %s", tt.args["name"])
+			if resp.Message != expectedMessage {
+				t.Errorf("unexpected message, want %q, got %q", expectedMessage, resp.Message)
 			}
 		})
 	}
