@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -97,27 +98,33 @@ func TestParseAddItemRequest(t *testing.T) {
 func TestHelloHandler(t *testing.T) {
 	t.Parallel()
 
-	// Please comment out for STEP 6-2
-	// predefine what we want
-	// type wants struct {
-	// 	code int               // desired HTTP status code
-	// 	body map[string]string // desired body
-	// }
-	// want := wants{
-	// 	code: http.StatusOK,
-	// 	body: map[string]string{"message": "Hello, world!"},
-	// }
+	type wants struct {
+		code int
+		body map[string]string
+	}
+	want := wants{
+		code: http.StatusOK,
+		body: map[string]string{"message": "Hello, world!"},
+	}
 
-	// set up test
 	req := httptest.NewRequest("GET", "/hello", nil)
 	res := httptest.NewRecorder()
 
 	h := &Handlers{}
 	h.Hello(res, req)
 
-	// STEP 6-2: confirm the status code
+	if res.Code != want.code {
+		t.Errorf("expected status code %d, got %d", want.code, res.Code)
+	}
 
-	// STEP 6-2: confirm response body
+	var got map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+
+	if diff := cmp.Diff(want.body, got); diff != "" {
+		t.Errorf("unexpected response body (-want +got):\n%s", diff)
+	}
 }
 
 func TestAddItem(t *testing.T) {
