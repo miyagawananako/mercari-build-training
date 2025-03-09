@@ -9,9 +9,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"database/sql"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
 	"mime/multipart"
+	"os"
+	"strings"
 )
 
 func TestParseAddItemRequest(t *testing.T) {
@@ -225,121 +228,169 @@ func TestAddItem(t *testing.T) {
 	}
 }
 
-// STEP 6-4: uncomment this test
-// func TestAddItemE2e(t *testing.T) {
-// 	if testing.Short() {
-// 		t.Skip("skipping e2e test")
-// 	}
+func TestAddItemE2e(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test")
+	}
 
-// 	db, closers, err := setupDB(t)
-// 	if err != nil {
-// 		t.Fatalf("failed to set up database: %v", err)
-// 	}
-// 	t.Cleanup(func() {
-// 		for _, c := range closers {
-// 			c()
-// 		}
-// 	})
+	db, closers, dbPath, err := setupDB(t)
+	if err != nil {
+		t.Fatalf("failed to set up database: %v", err)
+	}
+	t.Cleanup(func() {
+		for _, c := range closers {
+			c()
+		}
+	})
 
-// 	type wants struct {
-// 		code int
-// 	}
-// 	cases := map[string]struct {
-// 		args map[string]string
-// 		wants
-// 	}{
-// 		"ok: correctly inserted": {
-// 			args: map[string]string{
-// 				"name":     "used iPhone 16e",
-// 				"category": "phone",
-// 			},
-// 			wants: wants{
-// 				code: http.StatusOK,
-// 			},
-// 		},
-// 		"ng: failed to insert": {
-// 			args: map[string]string{
-// 				"name":     "",
-// 				"category": "phone",
-// 			},
-// 			wants: wants{
-// 				code: http.StatusBadRequest,
-// 			},
-// 		},
-// 	}
+	type wants struct {
+		code int
+	}
+	cases := map[string]struct {
+		args map[string]string
+		wants
+	}{
+		"ok: correctly inserted": {
+			args: map[string]string{
+				"name":     "used iPhone 16e",
+				"category": "phone",
+				"image":    "test.jpg",
+			},
+			wants: wants{
+				code: http.StatusOK,
+			},
+		},
+		"ng: failed to insert": {
+			args: map[string]string{
+				"name":     "",
+				"category": "phone",
+				"image":    "test.jpg",
+			},
+			wants: wants{
+				code: http.StatusBadRequest,
+			},
+		},
+	}
 
-// 	for name, tt := range cases {
-// 		t.Run(name, func(t *testing.T) {
-// 			h := &Handlers{itemRepo: &itemRepository{db: db}}
+	for name, tt := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := &Handlers{
+				imgDirPath: t.TempDir(),
+				itemRepo:   &itemRepository{dbPath: dbPath},
+			}
 
-// 			values := url.Values{}
-// 			for k, v := range tt.args {
-// 				values.Set(k, v)
-// 			}
-// 			req := httptest.NewRequest("POST", "/items", strings.NewReader(values.Encode()))
-// 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			var b bytes.Buffer
+			w := multipart.NewWriter(&b)
 
-// 			rr := httptest.NewRecorder()
-// 			h.AddItem(rr, req)
+			for k, v := range tt.args {
+				if k == "image" {
+					fw, err := w.CreateFormFile("image", v)
+					if err != nil {
+						t.Fatal(err)
+					}
+					fw.Write([]byte("test image data"))
+				} else {
+					if err := w.WriteField(k, v); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			w.Close()
 
-// 			// check response
-// 			if tt.wants.code != rr.Code {
-// 				t.Errorf("expected status code %d, got %d", tt.wants.code, rr.Code)
-// 			}
-// 			if tt.wants.code >= 400 {
-// 				return
-// 			}
-// 			for _, v := range tt.args {
-// 				if !strings.Contains(rr.Body.String(), v) {
-// 					t.Errorf("response body does not contain %s, got: %s", v, rr.Body.String())
-// 				}
-// 			}
+			req := httptest.NewRequest("POST", "/items", &b)
+			req.Header.Set("Content-Type", w.FormDataContentType())
 
-// 			// STEP 6-4: check inserted data
-// 		})
-// 	}
-// }
+			rr := httptest.NewRecorder()
+			h.AddItem(rr, req)
 
-// func setupDB(t *testing.T) (db *sql.DB, closers []func(), e error) {
-// 	t.Helper()
+			// check response
+			if tt.wants.code != rr.Code {
+				t.Errorf("expected status code %d, got %d", tt.wants.code, rr.Code)
+			}
+			if tt.wants.code >= 400 {
+				return
+			}
+			if !strings.Contains(rr.Body.String(), tt.args["name"]) {
+				t.Errorf("response body does not contain %s, got: %s", tt.args["name"], rr.Body.String())
+			}
 
-// 	defer func() {
-// 		if e != nil {
-// 			for _, c := range closers {
-// 				c()
-// 			}
-// 		}
-// 	}()
+			if tt.wants.code == http.StatusOK {
+				var categoryID int
+				err := db.QueryRow("SELECT id FROM categories WHERE name = ?", tt.args["category"]).Scan(&categoryID)
+				if err != nil {
+					t.Errorf("failed to get category: %v", err)
+				}
 
-// 	// create a temporary file for e2e testing
-// 	f, err := os.CreateTemp(".", "*.sqlite3")
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
-// 	closers = append(closers, func() {
-// 		f.Close()
-// 		os.Remove(f.Name())
-// 	})
+				var item struct {
+					Name      string
+					Category  string
+					ImageName string
+				}
+				err = db.QueryRow(`
+					SELECT i.name, c.name, i.image_name
+					FROM items i
+					JOIN categories c ON i.category_id = c.id
+					WHERE i.name = ?`, tt.args["name"]).Scan(&item.Name, &item.Category, &item.ImageName)
+				if err != nil {
+					t.Errorf("failed to get item: %v", err)
+				}
 
-// 	// set up tables
-// 	db, err = sql.Open("sqlite3", f.Name())
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
-// 	closers = append(closers, func() {
-// 		db.Close()
-// 	})
+				if item.Name != tt.args["name"] {
+					t.Errorf("unexpected name: want %q, got %q", tt.args["name"], item.Name)
+				}
+				if item.Category != tt.args["category"] {
+					t.Errorf("unexpected category: want %q, got %q", tt.args["category"], item.Category)
+				}
+			}
+		})
+	}
+}
 
-// 	// TODO: replace it with real SQL statements.
-// 	cmd := `CREATE TABLE IF NOT EXISTS items (
-// 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-// 		name VARCHAR(255),
-// 		category VARCHAR(255)
-// 	)`
-// 	_, err = db.Exec(cmd)
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
+func setupDB(t *testing.T) (db *sql.DB, closers []func(), dbPath string, err error) {
+	t.Helper()
 
-// 	return db, closers, nil
-// }
+	defer func() {
+		if err != nil {
+			for _, c := range closers {
+				c()
+			}
+		}
+	}()
+
+	// create a temporary file for e2e testing
+	f, err := os.CreateTemp(".", "*.sqlite3")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	closers = append(closers, func() {
+		f.Close()
+		os.Remove(f.Name())
+	})
+
+	// set up tables
+	db, err = sql.Open("sqlite3", f.Name())
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to open database: %w", err)
+	}
+	closers = append(closers, func() {
+		db.Close()
+	})
+
+	cmd := `CREATE TABLE IF NOT EXISTS items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		category_id INTEGER NOT NULL,
+		image_name TEXT NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS categories (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL
+	);`
+
+	_, err = db.Exec(cmd)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	return db, closers, f.Name(), nil
+}
