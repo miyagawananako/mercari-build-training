@@ -1,78 +1,20 @@
-import { useRef, useState } from 'react';
-import { postItem } from '~/api';
+import { styled } from 'styled-components';
+import { themeColors } from '~/color';
+import { useListingForm } from '~/hooks/useListingForm';
 
 interface Prop {
   onListingCompleted: () => void;
 }
 
-type FormDataType = {
-  name: string;
-  category: string;
-  image: string | File;
-};
-
 export const Listing = ({ onListingCompleted }: Prop) => {
-  const initialState = {
-    name: '',
-    category: '',
-    image: '',
-  };
-  const [values, setValues] = useState<FormDataType>(initialState);
+  const { values, uploadImageRef, onValueChange, onFileChange, onSubmit } =
+    useListingForm(onListingCompleted);
 
-  const uploadImageRef = useRef<HTMLInputElement>(null);
-
-  const onValueChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setValues({
-      ...values,
-      [event.target.name]: event.target.value,
-    });
-  };
-  const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setValues({
-      ...values,
-      [event.target.name]: event.target.files![0],
-    });
-  };
-  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    // Validate field before submit
-    const REQUIRED_FILEDS = ['name', 'image'];
-    const missingFields = Object.entries(values)
-      .filter(([, value]) => !value && REQUIRED_FILEDS.includes(value))
-      .map(([key]) => key);
-
-    if (missingFields.length) {
-      alert(`Missing fields: ${missingFields.join(', ')}`);
-      return;
-    }
-
-    // Submit the form
-    postItem({
-      name: values.name,
-      category: values.category,
-      image: values.image,
-    })
-      .then(() => {
-        alert('Item listed successfully');
-      })
-      .catch((error) => {
-        console.error('POST error:', error);
-        alert('Failed to list this item');
-      })
-      .finally(() => {
-        onListingCompleted();
-        setValues(initialState);
-        if (uploadImageRef.current) {
-          uploadImageRef.current.value = '';
-        }
-      });
-  };
   return (
-    <div className="Listing">
+    <_Wrapper>
       <form onSubmit={onSubmit}>
-        <div>
-          <input
+        <_InputWrapper>
+          <_InputText
             type="text"
             name="name"
             id="name"
@@ -81,7 +23,7 @@ export const Listing = ({ onListingCompleted }: Prop) => {
             required
             value={values.name}
           />
-          <input
+          <_InputText
             type="text"
             name="category"
             id="category"
@@ -89,7 +31,7 @@ export const Listing = ({ onListingCompleted }: Prop) => {
             onChange={onValueChange}
             value={values.category}
           />
-          <input
+          <_InputFile
             type="file"
             name="image"
             id="image"
@@ -97,9 +39,83 @@ export const Listing = ({ onListingCompleted }: Prop) => {
             required
             ref={uploadImageRef}
           />
-          <button type="submit">List this item</button>
-        </div>
+          <_SubmitButton type="submit">List this item</_SubmitButton>
+        </_InputWrapper>
       </form>
-    </div>
+    </_Wrapper>
   );
 };
+
+const _Wrapper = styled.div`
+  min-height: 8vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: left;
+  font-size: calc(10px + 1vmin);
+  color: ${themeColors.monotone.m0};
+`;
+
+const _InputWrapper = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+`;
+
+const _InputText = styled.input`
+  height: 30px;
+  min-width: 200px;
+  padding: 0 10px;
+  border: 1px solid ${themeColors.monotone.m200};
+  border-radius: 4px;
+
+  @media (max-width: 768px) {
+    width: 100%;
+  }
+`;
+
+const _InputFile = styled.input`
+  height: 30px;
+
+  @media (max-width: 768px) {
+    width: 100%;
+  }
+
+  &::file-selector-button {
+    background-color: ${themeColors.blue.b400};
+    color: ${themeColors.monotone.m0};
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  &::file-selector-button:hover {
+    background-color: ${themeColors.blue.b700};
+  }
+`;
+
+const _SubmitButton = styled.button`
+  height: 30px;
+  padding: 0 20px;
+  background-color: ${themeColors.blue.b400};
+  color: ${themeColors.monotone.m0};
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background-color: ${themeColors.blue.b700};
+  }
+
+  @media (max-width: 768px) {
+    width: 100%;
+  }
+`;
