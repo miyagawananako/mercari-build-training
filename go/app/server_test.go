@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"context"
 	"database/sql"
 	"github.com/google/go-cmp/cmp"
 	gomock "go.uber.org/mock/gomock"
@@ -277,8 +278,9 @@ func TestAddItemE2e(t *testing.T) {
 			h := &Handlers{
 				imgDirPath: t.TempDir(),
 				itemRepo: &itemRepository{
-					db:     db,
-					dbPath: dbPath,
+					db:      db,
+					dbPath:  dbPath,
+					sqlPath: "../db/items.sql",
 				},
 			}
 
@@ -379,18 +381,12 @@ func setupDB(t *testing.T) (db *sql.DB, closers []func(), dbPath string, err err
 		db.Close()
 	})
 
-	cmd := `CREATE TABLE IF NOT EXISTS items (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		category_id INTEGER NOT NULL,
-		image_name TEXT NOT NULL
-	);
-	CREATE TABLE IF NOT EXISTS categories (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL
-	);`
-
-	_, err = db.Exec(cmd)
+	repo := &itemRepository{
+		db:      db,
+		dbPath:  f.Name(),
+		sqlPath: "../db/items.sql",
+	}
+	err = repo.createTables(context.Background())
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("failed to create tables: %w", err)
 	}
