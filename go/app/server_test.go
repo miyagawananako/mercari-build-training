@@ -276,7 +276,10 @@ func TestAddItemE2e(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := &Handlers{
 				imgDirPath: t.TempDir(),
-				itemRepo:   &itemRepository{dbPath: dbPath},
+				itemRepo: &itemRepository{
+					db:     db,
+					dbPath: dbPath,
+				},
 			}
 
 			var b bytes.Buffer
