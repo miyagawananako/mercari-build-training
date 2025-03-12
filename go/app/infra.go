@@ -31,6 +31,7 @@ type ItemRepository interface {
 
 // itemRepository is an implementation of ItemRepository
 type itemRepository struct {
+	db     *sql.DB
 	dbPath string
 }
 
@@ -40,17 +41,21 @@ func NewItemRepository() ItemRepository {
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
 
 	sql, err := os.ReadFile("db/items.sql")
 	if err != nil {
+		db.Close()
 		panic(err)
 	}
 	_, err = db.Exec(string(sql))
 	if err != nil {
+		db.Close()
 		panic(err)
 	}
-	return &itemRepository{dbPath: "db/mercari.sqlite3"}
+	return &itemRepository{
+		db:     db,
+		dbPath: "db/mercari.sqlite3",
+	}
 }
 
 type ItemsWrapper struct {
@@ -59,13 +64,7 @@ type ItemsWrapper struct {
 
 // Insert inserts an item into the repository.
 func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
-	db, err := sql.Open("sqlite3", i.dbPath)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -102,13 +101,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 }
 
 func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
-	db, err := sql.Open("sqlite3", i.dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
+	rows, err := i.db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
 	if err != nil {
 		return nil, err
 	}
@@ -126,19 +119,13 @@ func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
-	db, err := sql.Open("sqlite3", i.dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
 	itemID, err := strconv.Atoi(id)
 	if err != nil {
 		return nil, err
 	}
 
 	item := &Item{}
-	err = db.QueryRowContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id WHERE items.id = ?", itemID).Scan(
+	err = i.db.QueryRowContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id WHERE items.id = ?", itemID).Scan(
 		&item.ID, &item.Name, &item.Category, &item.Image)
 	if err == sql.ErrNoRows {
 		return nil, errItemNotFound
