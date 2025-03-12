@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"os"
 	"strconv"
@@ -31,7 +32,22 @@ type ItemRepository interface {
 
 // itemRepository is an implementation of ItemRepository
 type itemRepository struct {
-	dbPath string
+	db      *sql.DB
+	dbPath  string
+	sqlPath string
+}
+
+func (i *itemRepository) createTables(ctx context.Context) error {
+	sql, err := os.ReadFile(i.sqlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read SQL file: %w", err)
+	}
+
+	_, err = i.db.ExecContext(ctx, string(sql))
+	if err != nil {
+		return fmt.Errorf("failed to create tables: %w", err)
+	}
+	return nil
 }
 
 // NewItemRepository creates a new itemRepository.
@@ -40,17 +56,18 @@ func NewItemRepository() ItemRepository {
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
 
-	sql, err := os.ReadFile("db/items.sql")
+	repo := &itemRepository{
+		db:      db,
+		dbPath:  "db/mercari.sqlite3",
+		sqlPath: "db/items.sql",
+	}
+	err = repo.createTables(context.Background())
 	if err != nil {
+		db.Close()
 		panic(err)
 	}
-	_, err = db.Exec(string(sql))
-	if err != nil {
-		panic(err)
-	}
-	return &itemRepository{dbPath: "db/mercari.sqlite3"}
+	return repo
 }
 
 type ItemsWrapper struct {
@@ -59,13 +76,7 @@ type ItemsWrapper struct {
 
 // Insert inserts an item into the repository.
 func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
-	db, err := sql.Open("sqlite3", i.dbPath)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -102,13 +113,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 }
 
 func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
-	db, err := sql.Open("sqlite3", i.dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
+	rows, err := i.db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
 	if err != nil {
 		return nil, err
 	}
@@ -126,19 +131,13 @@ func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
-	db, err := sql.Open("sqlite3", i.dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
 	itemID, err := strconv.Atoi(id)
 	if err != nil {
 		return nil, err
 	}
 
 	item := &Item{}
-	err = db.QueryRowContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id WHERE items.id = ?", itemID).Scan(
+	err = i.db.QueryRowContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id WHERE items.id = ?", itemID).Scan(
 		&item.ID, &item.Name, &item.Category, &item.Image)
 	if err == sql.ErrNoRows {
 		return nil, errItemNotFound
