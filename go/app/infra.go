@@ -2,12 +2,11 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"errors"
+	_ "github.com/mattn/go-sqlite3"
 	"os"
 	"strconv"
-	// STEP 5-1: uncomment this line
-	// _ "github.com/mattn/go-sqlite3"
 )
 
 var errImageNotFound = errors.New("image not found")
@@ -17,7 +16,7 @@ type Item struct {
 	ID       int    `db:"id" json:"-"`
 	Name     string `db:"name" json:"name"`
 	Category string `db:"category" json:"category"`
-	Image    string `db:"image" json:"image"`
+	Image    string `db:"image_name" json:"image"`
 }
 
 // Please run `go generate ./...` to generate the mock implementation
@@ -32,13 +31,31 @@ type ItemRepository interface {
 
 // itemRepository is an implementation of ItemRepository
 type itemRepository struct {
-	// fileName is the path to the JSON file storing items.
-	fileName string
+	db     *sql.DB
+	dbPath string
 }
 
 // NewItemRepository creates a new itemRepository.
 func NewItemRepository() ItemRepository {
-	return &itemRepository{fileName: "items.json"}
+	db, err := sql.Open("sqlite3", "db/mercari.sqlite3")
+	if err != nil {
+		panic(err)
+	}
+
+	sql, err := os.ReadFile("db/items.sql")
+	if err != nil {
+		db.Close()
+		panic(err)
+	}
+	_, err = db.Exec(string(sql))
+	if err != nil {
+		db.Close()
+		panic(err)
+	}
+	return &itemRepository{
+		db:     db,
+		dbPath: "db/mercari.sqlite3",
+	}
 }
 
 type ItemsWrapper struct {
@@ -47,67 +64,76 @@ type ItemsWrapper struct {
 
 // Insert inserts an item into the repository.
 func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
-	var wrapper ItemsWrapper
-	data, err := os.ReadFile(i.fileName)
-	if err != nil && !os.IsNotExist(err) {
+	tx, err := i.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	if err == nil && len(data) > 0 {
-		if err := json.Unmarshal(data, &wrapper); err != nil {
+	var categoryID int
+	err = tx.QueryRowContext(ctx, "SELECT id FROM categories WHERE name = ?", item.Category).Scan(&categoryID)
+	if err == sql.ErrNoRows {
+		res, err := tx.ExecContext(ctx, "INSERT INTO categories (name) VALUES (?)", item.Category)
+		if err != nil {
 			return err
 		}
+		categoryID64, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		categoryID = int(categoryID64)
+	} else if err != nil {
+		return err
 	}
 
-	wrapper.Items = append(wrapper.Items, Item{Name: item.Name, Category: item.Category, Image: item.Image})
+	stmt, err := tx.Prepare("INSERT INTO items (name, category_id, image_name) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
 
-	output, err := json.Marshal(wrapper)
+	_, err = stmt.Exec(item.Name, categoryID, item.Image)
 	if err != nil {
 		return err
 	}
 
-	err = os.WriteFile(i.fileName, output, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
-	var wrapper ItemsWrapper
-	data, err := os.ReadFile(i.fileName)
-	if err != nil && !os.IsNotExist(err) {
+	rows, err := i.db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	if err == nil && len(data) > 0 {
-		if err := json.Unmarshal(data, &wrapper); err != nil {
+	var items []*Item
+	for rows.Next() {
+		item := &Item{}
+		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.Image); err != nil {
 			return nil, err
 		}
-	}
-
-	items := make([]*Item, len(wrapper.Items))
-	for i := range wrapper.Items {
-		items[i] = &wrapper.Items[i]
+		items = append(items, item)
 	}
 	return items, nil
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
-	items, err := i.GetAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	itemID, err := strconv.Atoi(id)
 	if err != nil {
 		return nil, err
 	}
-	if itemID <= 0 || itemID > len(items) {
+
+	item := &Item{}
+	err = i.db.QueryRowContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id WHERE items.id = ?", itemID).Scan(
+		&item.ID, &item.Name, &item.Category, &item.Image)
+	if err == sql.ErrNoRows {
 		return nil, errItemNotFound
 	}
-	return items[itemID-1], nil
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 // StoreImage stores an image and returns an error if any.
