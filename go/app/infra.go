@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"os"
 	"strconv"
@@ -31,8 +32,22 @@ type ItemRepository interface {
 
 // itemRepository is an implementation of ItemRepository
 type itemRepository struct {
-	db     *sql.DB
-	dbPath string
+	db      *sql.DB
+	dbPath  string
+	sqlPath string
+}
+
+func (i *itemRepository) createTables(ctx context.Context) error {
+	sql, err := os.ReadFile(i.sqlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read SQL file: %w", err)
+	}
+
+	_, err = i.db.ExecContext(ctx, string(sql))
+	if err != nil {
+		return fmt.Errorf("failed to create tables: %w", err)
+	}
+	return nil
 }
 
 // NewItemRepository creates a new itemRepository.
@@ -42,20 +57,17 @@ func NewItemRepository() ItemRepository {
 		panic(err)
 	}
 
-	sql, err := os.ReadFile("db/items.sql")
+	repo := &itemRepository{
+		db:      db,
+		dbPath:  "db/mercari.sqlite3",
+		sqlPath: "db/items.sql",
+	}
+	err = repo.createTables(context.Background())
 	if err != nil {
 		db.Close()
 		panic(err)
 	}
-	_, err = db.Exec(string(sql))
-	if err != nil {
-		db.Close()
-		panic(err)
-	}
-	return &itemRepository{
-		db:     db,
-		dbPath: "db/mercari.sqlite3",
-	}
+	return repo
 }
 
 type ItemsWrapper struct {
