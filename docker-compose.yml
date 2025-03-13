@@ -1,0 +1,26 @@
+version: "3.8"
+services:
+  web:
+    image: "mercari-build-training/web:latest"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./typescript/simple-mercari-web:/web
+    environment:
+      NODE_ENV: development
+    networks:
+      - web-network
+  app:
+    image: "mercari-build-training/app:latest"
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./go:/app
+    environment:
+      GO_ENV: development
+    networks:
+      - web-network
+
+networks:
+  web-network:
+    driver: bridge
