@@ -26,7 +26,7 @@ type Item struct {
 //go:generate go run go.uber.org/mock/mockgen -source=$GOFILE -package=${GOPACKAGE} -destination=./mock_$GOFILE
 type ItemRepository interface {
 	Insert(ctx context.Context, item *Item) error
-	GetAll(ctx context.Context) ([]*Item, error)
+	GetAll(ctx context.Context) (*ItemsWrapper, error)
 	GetByID(ctx context.Context, id string) (*Item, error)
 }
 
@@ -71,7 +71,7 @@ func NewItemRepository() ItemRepository {
 }
 
 type ItemsWrapper struct {
-	Items []Item `json:"items"`
+	Items []*Item `json:"items"`
 }
 
 // Insert inserts an item into the repository.
@@ -112,7 +112,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 	return tx.Commit()
 }
 
-func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
+func (i *itemRepository) GetAll(ctx context.Context) (*ItemsWrapper, error) {
 	rows, err := i.db.QueryContext(ctx, "SELECT items.id, items.name, categories.name, items.image_name FROM items INNER JOIN categories ON items.category_id = categories.id")
 	if err != nil {
 		return nil, err
@@ -127,7 +127,8 @@ func (i *itemRepository) GetAll(ctx context.Context) ([]*Item, error) {
 		}
 		items = append(items, item)
 	}
-	return items, nil
+
+	return &ItemsWrapper{Items: items}, nil
 }
 
 func (i *itemRepository) GetByID(ctx context.Context, id string) (*Item, error) {
