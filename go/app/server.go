@@ -43,10 +43,11 @@ func (s Server) Run() int {
 
 	// set up routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", h.GetItems)
+	mux.HandleFunc("GET /", h.Hello)
 	mux.HandleFunc("POST /items", h.AddItem)
-	mux.HandleFunc("GET /items/{id}", h.GetItemByID)
+	mux.HandleFunc("GET /items", h.GetItems)
 	mux.HandleFunc("GET /images/{filename}", h.GetImage)
+	mux.HandleFunc("GET /items/{id}", h.GetItemByID)
 
 	// start the server
 	slog.Info("http server started on", "port", s.Port)
